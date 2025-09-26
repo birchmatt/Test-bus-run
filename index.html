@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bus Student Voice Tracker</title>
+    <meta name="description" content="Voice-powered student boarding tracker for bus drivers">
+    <meta name="author" content="Bus Transportation Department">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Bus Tracker">
+    
     <style>
         * {
             margin: 0;
@@ -65,7 +74,7 @@
             flex-wrap: wrap;
         }
 
-        select, input[type="text"] {
+        select, input[type="text"], input[type="email"] {
             padding: 12px 16px;
             border: 2px solid #e9ecef;
             border-radius: 10px;
@@ -76,7 +85,7 @@
             min-width: 200px;
         }
 
-        select:focus, input[type="text"]:focus {
+        select:focus, input[type="text"]:focus, input[type="email"]:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -319,6 +328,8 @@
             margin: 5px 0;
             word-break: break-all;
         }
+
+        @media (max-width: 768px) {
             .container {
                 margin: 10px;
                 border-radius: 15px;
@@ -435,7 +446,7 @@
                     
                     <div style="margin-bottom: 20px;">
                         <input type="email" id="emailAddress" placeholder="Enter email address (e.g., supervisor@school.edu)" 
-                               style="width: 300px; max-width: 100%; padding: 12px 16px; border: 2px solid #e9ecef; border-radius: 10px; font-size: 1rem;">
+                               style="width: 300px; max-width: 100%;">
                     </div>
                     
                     <div style="display: flex; gap: 15px; flex-wrap: wrap;">
@@ -458,6 +469,7 @@
     </div>
 
     <script>
+        // Global variables
         let recognition;
         let currentTranscript = '';
         let currentRun = null;
@@ -467,395 +479,11 @@
         let accumulatedTranscript = '';
         let lastSpeechTime = null;
 
-        // Browser detection and Chrome recommendation
-        function detectBrowser() {
-            const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
-            const isEdge = /Edg/.test(navigator.userAgent);
-            const isFirefox = /Firefox/.test(navigator.userAgent);
-            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-            
-            return {
-                isChrome: isChrome && !isEdge,
-                isEdge,
-                isFirefox,
-                isSafari,
-                name: isChrome && !isEdge ? 'Chrome' : isEdge ? 'Edge' : isFirefox ? 'Firefox' : isSafari ? 'Safari' : 'Unknown'
-            };
-        }
-
-        function checkBrowserCompatibility() {
-            const browser = detectBrowser();
-            const hasSpeechRecognition = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
-            
-            if (!browser.isChrome && !browser.isEdge) {
-                const warningDiv = document.createElement('div');
-                warningDiv.className = 'status-message status-error browser-warning';
-                warningDiv.innerHTML = `
-                    <strong>⚠️ Browser Compatibility Warning</strong><br>
-                    You're using ${browser.name}. For best voice recognition performance, please use <strong>Google Chrome</strong>.<br><br>
-                    
-                    <strong>🔧 Quick Fix Options:</strong><br>
-                    <strong>Option 1 - Copy URL to Chrome:</strong><br>
-                    1. Copy this URL: <div class="url-copy">${window.location.href}</div>
-                    2. Open Google Chrome<br>
-                    3. Paste the URL and press Enter<br><br>
-                    
-                    <strong>Option 2 - Download Chrome:</strong><br>
-                    <a href="https://www.google.com/chrome/" target="_blank" style="color: #fff; text-decoration: underline;">Download Google Chrome (Free)</a><br><br>
-                    
-                    <strong>Option 3 - Use Manual Entry:</strong><br>
-                    You can still use this app by typing student names manually instead of voice recording.
-                `;
-                
-                const container = document.querySelector('.content');
-                container.insertBefore(warningDiv, container.firstChild);
-            } else if (!hasSpeechRecognition) {
-                const warningDiv = document.createElement('div');
-                warningDiv.className = 'status-message status-error';
-                warningDiv.innerHTML = `
-                    <strong>❌ Speech Recognition Not Available</strong><br>
-                    Your browser doesn't support speech recognition. Please try:<br>
-                    1. Using Google Chrome (recommended)<br>
-                    2. Enabling microphone permissions<br>
-                    3. Using HTTPS (required for microphone access)
-                `;
-                
-                const container = document.querySelector('.content');
-                container.insertBefore(warningDiv, container.firstChild);
-            } else if (browser.isChrome || browser.isEdge) {
-                // Show success message for compatible browsers
-                setTimeout(() => {
-                    updateStatus(`✅ Great! ${browser.name} supports voice recognition perfectly.`, 'success');
-                }, 1000);
-            }
-        }
-
-        // Initialize the app with diagnostics
-        document.addEventListener('DOMContentLoaded', function() {
-            // Check HTTPS first
-            const isSecure = checkAndRedirectToHTTPS();
-            
-            checkBrowserCompatibility();
-            if (isSecure) {
-                checkMicrophoneStatus();
-            }
-            initializeSpeechRecognition();
-            loadExistingRuns();
-            updateDisplay();
-            
-            // Auto-test microphone on mobile devices
-            if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                setTimeout(() => {
-                    updateStatus('📱 Mobile device detected. Click "Test Microphone" to check permissions.', 'info');
-                }, 2000);
-            }
-        });
-
-        // Enhanced microphone permission and diagnostics
-        async function checkMicrophoneStatus() {
-            const statusDiv = document.createElement('div');
-            statusDiv.id = 'microphoneStatus';
-            statusDiv.className = 'status-message status-info';
-            
-            let statusHTML = '<strong>🔍 Microphone Diagnostics:</strong><br>';
-            
-            // Check if we're on HTTPS
-            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                statusHTML += '❌ <strong>HTTPS Required:</strong> Microphone access requires HTTPS. ';
-                statusHTML += 'This page is served over HTTP which blocks microphone access.<br>';
-            } else {
-                statusHTML += '✅ HTTPS: Page is secure<br>';
-            }
-            
-            // Check browser support
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SpeechRecognition) {
-                statusHTML += '❌ <strong>Speech Recognition:</strong> Not supported in this browser<br>';
-            } else {
-                statusHTML += '✅ Speech Recognition: Supported<br>';
-            }
-            
-            // Check MediaDevices API
-            if (!navigator.mediaDevices) {
-                statusHTML += '❌ <strong>Media Devices:</strong> Not available (likely HTTP instead of HTTPS)<br>';
-            } else {
-                statusHTML += '✅ Media Devices: Available<br>';
-            }
-            
-            // Check permissions
-            try {
-                if (navigator.permissions && navigator.permissions.query) {
-                    const permissionStatus = await navigator.permissions.query({name: 'microphone'});
-                    statusHTML += `📋 <strong>Permission Status:</strong> ${permissionStatus.state}<br>`;
-                    
-                    if (permissionStatus.state === 'denied') {
-                        statusHTML += '⚠️ <strong>Fix:</strong> Go to Chrome Settings > Privacy > Microphone, find this site, and allow access<br>';
-                    }
-                } else {
-                    statusHTML += '⚠️ Permission status: Cannot check (try manual permission grant)<br>';
-                }
-            } catch (e) {
-                statusHTML += '⚠️ Permission check failed: ' + e.message + '<br>';
-            }
-            
-            statusHTML += '<br><strong>📱 Mobile Chrome Steps:</strong><br>';
-            statusHTML += '1. Tap the lock icon 🔒 in the address bar<br>';
-            statusHTML += '2. Tap "Microphone" and select "Allow"<br>';
-            statusHTML += '3. Refresh the page<br>';
-            
-            statusDiv.innerHTML = statusHTML;
-            
-            const container = document.querySelector('.content');
-            const existingStatus = document.getElementById('microphoneStatus');
-            if (existingStatus) {
-                existingStatus.remove();
-            }
-            container.insertBefore(statusDiv, container.firstChild);
-        }
-
-        // Simplified microphone test
-        async function testMicrophone() {
-            updateStatus('🔍 Testing microphone access...', 'info');
-            
-            try {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error('MediaDevices API not available - page must be served over HTTPS');
-                }
-                
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-                
-                // Test successful - stop the stream
-                stream.getTracks().forEach(track => track.stop());
-                updateStatus('✅ Microphone access granted! Voice recording should work.', 'success');
-                return true;
-                
-            } catch (error) {
-                let errorMessage = '❌ Microphone test failed: ';
-                
-                switch(error.name) {
-                    case 'NotAllowedError':
-                        errorMessage = '❌ Microphone permission denied. Please allow microphone access in browser settings.';
-                        break;
-                    case 'NotFoundError':
-                        errorMessage = '❌ No microphone found on this device.';
-                        break;
-                    case 'NotSupportedError':
-                        errorMessage = '❌ Microphone not supported - page must be served over HTTPS.';
-                        break;
-                    case 'OverconstrainedError':
-                        errorMessage = '❌ Microphone constraints not supported.';
-                        break;
-                    default:
-                        errorMessage += error.message;
-                }
-                
-                updateStatus(errorMessage, 'error');
-                return false;
-            }
-        }
-
-        // Updated permission request
-        async function requestMicrophonePermission() {
-            return await testMicrophone();
-        }
-
-        // Force HTTPS redirect (if possible)
-        function checkAndRedirectToHTTPS() {
-            if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                const httpsUrl = location.href.replace('http:', 'https:');
-                const warningDiv = document.createElement('div');
-                warningDiv.className = 'status-message status-error';
-                warningDiv.innerHTML = `
-                    <strong>🔒 HTTPS Required for Microphone Access</strong><br>
-                    This page needs to be served over HTTPS to access the microphone.<br><br>
-                    <strong>Try this secure URL:</strong><br>
-                    <a href="${httpsUrl}" style="color: #007bff; font-weight: bold;">${httpsUrl}</a><br><br>
-                    <button onclick="window.location.href='${httpsUrl}'" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
-                        🔒 Switch to HTTPS
-                    </button>
-                `;
-                
-                const container = document.querySelector('.content');
-                container.insertBefore(warningDiv, container.firstChild);
-                
-                // Disable voice recording buttons
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('startBtn').textContent = 'HTTPS Required';
-                return false;
-            }
-            return true;
-        }
-        function initializeSpeechRecognition() {
-            // Check for speech recognition support (including mobile)
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            
-            if (SpeechRecognition) {
-                recognition = new SpeechRecognition();
-                
-                // Mobile-optimized settings
-                recognition.continuous = false; // Changed to false for better mobile support
-                recognition.interimResults = true;
-                recognition.lang = 'en-US';
-                recognition.maxAlternatives = 1;
-                
-                // Add mobile-specific settings
-                if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                    recognition.continuous = false;
-                    recognition.interimResults = false; // Simpler for mobile
-                }
-                
-                recognition.onstart = function() {
-                    updateStatus('🎤 Listening... Speak clearly and say student names.', 'info');
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
-                    document.getElementById('startBtn').classList.add('recording');
-                    document.getElementById('startBtn').textContent = 'Recording...';
-                };
-                
-                recognition.onresult = function(event) {
-                    let interimTranscript = '';
-                    let finalTranscript = '';
-                    
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const transcript = event.results[i][0].transcript;
-                        if (event.results[i].isFinal) {
-                            finalTranscript += transcript + ' ';
-                        } else {
-                            interimTranscript += transcript;
-                        }
-                    }
-                    
-                    currentTranscript = finalTranscript + interimTranscript;
-                    document.getElementById('transcript').textContent = currentTranscript || 'Listening...';
-                    
-                    if (currentTranscript.trim()) {
-                        document.getElementById('transcript').classList.add('has-content');
-                        document.getElementById('addTranscriptBtn').disabled = false;
-                    }
-                };
-                
-                recognition.onerror = function(event) {
-                    let errorMessage = 'Speech recognition error: ';
-                    switch(event.error) {
-                        case 'not-allowed':
-                            errorMessage = '❌ Microphone permission denied. Please allow microphone access.';
-                            break;
-                        case 'no-speech':
-                            errorMessage = '⚠️ No speech detected. Try speaking louder or closer to the microphone.';
-                            break;
-                        case 'audio-capture':
-                            errorMessage = '❌ Audio capture failed. Check your microphone connection.';
-                            break;
-                        case 'network':
-                            errorMessage = '❌ Network error. Check your internet connection.';
-                            break;
-                        default:
-                            errorMessage += event.error;
-                    }
-                    updateStatus(errorMessage, 'error');
-                    resetRecordingButtons();
-                };
-                
-                recognition.onend = function() {
-                    resetRecordingButtons();
-                    if (currentTranscript.trim()) {
-                        updateStatus('✅ Recording stopped. Review the transcript and add names.', 'success');
-                    } else {
-                        updateStatus('⚠️ No speech detected. Try speaking louder or closer to the microphone.', 'error');
-                        // For mobile, try to restart automatically if no speech detected
-                        if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                            updateStatus('💡 On mobile? Try holding the phone closer and speaking clearly. Tap "Start Recording" to try again.', 'info');
-                        }
-                    }
-                };
-            } else {
-                updateStatus('❌ Speech recognition not supported in this browser. Try Google Chrome.', 'error');
-                document.getElementById('startBtn').disabled = true;
-            }
-        }
-
-        async function startRecording() {
-            if (!currentRun) {
-                updateStatus('⚠️ Please select or create a run first.', 'error');
-                return;
-            }
-            
-            // Request microphone permission first
-            const hasPermission = await requestMicrophonePermission();
-            if (!hasPermission) {
-                return;
-            }
-            
-            if (recognition) {
-                // Don't clear accumulated transcript - keep building on it
-                document.getElementById('transcript').textContent = 'Requesting microphone access...';
-                
-                try {
-                    recognition.start();
-                } catch (error) {
-                    if (error.name === 'InvalidStateError') {
-                        // Recognition is already running, stop it first
-                        recognition.stop();
-                        setTimeout(() => {
-                            try {
-                                recognition.start();
-                            } catch (e) {
-                                updateStatus('❌ Could not start recording: ' + e.message, 'error');
-                                resetRecordingButtons();
-                            }
-                        }, 100);
-                    } else {
-                        updateStatus('❌ Could not start recording: ' + error.message, 'error');
-                        resetRecordingButtons();
-                    }
-                }
-            }
-        }
-
-        function stopRecording() {
-            if (recognition) {
-                try {
-                    clearInactivityTimer();
-                    recognition.stop();
-                    updateStatus('🔄 Stopping recording...', 'info');
-                } catch (error) {
-                    updateStatus('❌ Error stopping recording: ' + error.message, 'error');
-                    clearInactivityTimer();
-                    resetRecordingButtons();
-                }
-            }
-        }
-
-        function resetRecordingButtons() {
-            document.getElementById('startBtn').disabled = false;
-            document.getElementById('stopBtn').disabled = true;
-            document.getElementById('startBtn').classList.remove('recording');
-            document.getElementById('startBtn').textContent = 'Start Recording';
-        }
-
-        function clearTranscript() {
-            accumulatedTranscript = '';
-            currentTranscript = '';
-            updateTranscriptDisplay();
-            updateStatus('🧹 Transcript cleared. Ready for new recording.', 'info');
-        }
-
-        function loadExistingRuns() {
-            const select = document.getElementById('runSelect');
-            select.innerHTML = '<option value="">Select existing run...</option>';
-            
-            Object.keys(runs).forEach(runId => {
-                const option = document.createElement('option');
-                option.value = runId;
-                option.textContent = `${runs[runId].name} (${runs[runId].startTime})`;
-                select.appendChild(option);
-            });
+        // Core functions
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = `status-message status-${type}`;
         }
 
         function createNewRun() {
@@ -887,16 +515,17 @@
             updateStatus(`✅ Created new run: ${runName}`, 'success');
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add event listener for run selection
-            document.getElementById('runSelect').addEventListener('change', function() {
-                currentRun = this.value;
-                updateDisplay();
-                if (currentRun) {
-                    updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
-                }
+        function loadExistingRuns() {
+            const select = document.getElementById('runSelect');
+            select.innerHTML = '<option value="">Select existing run...</option>';
+            
+            Object.keys(runs).forEach(runId => {
+                const option = document.createElement('option');
+                option.value = runId;
+                option.textContent = `${runs[runId].name} (${runs[runId].startTime})`;
+                select.appendChild(option);
             });
-        });
+        }
 
         function addManualName() {
             const name = document.getElementById('manualName').value.trim();
@@ -912,39 +541,6 @@
             
             addStudentToRun(name);
             document.getElementById('manualName').value = '';
-        }
-
-        function addTranscriptNames() {
-            if (!accumulatedTranscript.trim()) {
-                updateStatus('⚠️ No transcript available.', 'error');
-                return;
-            }
-            
-            if (!currentRun) {
-                updateStatus('⚠️ Please select or create a run first.', 'error');
-                return;
-            }
-            
-            // Enhanced name extraction from accumulated transcript
-            const names = accumulatedTranscript
-                .split(/[,.\s]+/)
-                .map(name => name.trim().replace(/[^\w\s-']/g, ''))
-                .filter(name => name.length > 1)
-                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright'].includes(name.toLowerCase()));
-            
-            if (names.length === 0) {
-                updateStatus('⚠️ No valid names found in transcript.', 'error');
-                return;
-            }
-            
-            names.forEach(name => addStudentToRun(name));
-            
-            // Clear the accumulated transcript after processing
-            accumulatedTranscript = '';
-            currentTranscript = '';
-            updateTranscriptDisplay();
-            
-            updateStatus(`✅ Added ${names.length} student(s) from voice transcript. Transcript cleared for next recording.`, 'success');
         }
 
         function addStudentToRun(name) {
@@ -1014,13 +610,278 @@
             });
         }
 
-        function updateStatus(message, type) {
-            const statusDiv = document.getElementById('statusMessage');
-            statusDiv.textContent = message;
-            statusDiv.className = `status-message status-${type}`;
+        // Voice recognition functions
+        async function testMicrophone() {
+            updateStatus('🔍 Testing microphone access...', 'info');
+            
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('MediaDevices API not available - page must be served over HTTPS');
+                }
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                
+                stream.getTracks().forEach(track => track.stop());
+                updateStatus('✅ Microphone access granted! Voice recording should work.', 'success');
+                return true;
+                
+            } catch (error) {
+                let errorMessage = '❌ Microphone test failed: ';
+                
+                switch(error.name) {
+                    case 'NotAllowedError':
+                        errorMessage = '❌ Microphone permission denied. Please allow microphone access in browser settings.';
+                        break;
+                    case 'NotFoundError':
+                        errorMessage = '❌ No microphone found on this device.';
+                        break;
+                    case 'NotSupportedError':
+                        errorMessage = '❌ Microphone not supported - page must be served over HTTPS.';
+                        break;
+                    default:
+                        errorMessage += error.message;
+                }
+                
+                updateStatus(errorMessage, 'error');
+                return false;
+            }
         }
 
-        // Enhanced CSV Export with automatic purge
+        function initializeSpeechRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'en-US';
+                recognition.maxAlternatives = 1;
+                
+                recognition.onstart = function() {
+                    updateStatus('🎤 Listening continuously... Say student names. Recording will continue for 30 seconds after last speech.', 'info');
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').disabled = false;
+                    document.getElementById('startBtn').classList.add('recording');
+                    document.getElementById('startBtn').textContent = 'Recording...';
+                    lastSpeechTime = Date.now();
+                    startInactivityTimer();
+                };
+                
+                recognition.onresult = function(event) {
+                    let interimTranscript = '';
+                    let finalTranscript = '';
+                    
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalTranscript += transcript + ' ';
+                            lastSpeechTime = Date.now();
+                        } else {
+                            interimTranscript += transcript;
+                            if (interimTranscript.trim()) {
+                                lastSpeechTime = Date.now();
+                            }
+                        }
+                    }
+                    
+                    if (finalTranscript.trim()) {
+                        accumulatedTranscript += finalTranscript;
+                        updateTranscriptDisplay();
+                    }
+                    
+                    currentTranscript = finalTranscript + interimTranscript;
+                    const displayText = accumulatedTranscript + (interimTranscript ? ' ' + interimTranscript : '');
+                    document.getElementById('transcript').textContent = displayText || 'Listening...';
+                    
+                    if (displayText.trim()) {
+                        document.getElementById('transcript').classList.add('has-content');
+                        document.getElementById('addTranscriptBtn').disabled = false;
+                    }
+                    
+                    startInactivityTimer();
+                };
+                
+                recognition.onerror = function(event) {
+                    if (event.error === 'no-speech') return;
+                    
+                    let errorMessage = 'Speech recognition error: ';
+                    switch(event.error) {
+                        case 'not-allowed':
+                            errorMessage = '❌ Microphone permission denied. Please allow microphone access.';
+                            break;
+                        case 'audio-capture':
+                            errorMessage = '❌ Audio capture failed. Check your microphone connection.';
+                            break;
+                        case 'network':
+                            errorMessage = '❌ Network error. Check your internet connection.';
+                            break;
+                        default:
+                            errorMessage += event.error;
+                    }
+                    updateStatus(errorMessage, 'error');
+                    clearInactivityTimer();
+                    resetRecordingButtons();
+                };
+                
+                recognition.onend = function() {
+                    if (document.getElementById('stopBtn').disabled === false) {
+                        if (lastSpeechTime && (Date.now() - lastSpeechTime) < 30000) {
+                            setTimeout(() => {
+                                try {
+                                    recognition.start();
+                                } catch (e) {}
+                            }, 100);
+                        } else {
+                            handleRecordingEnd();
+                        }
+                    }
+                };
+            } else {
+                updateStatus('❌ Speech recognition not supported in this browser. Try Google Chrome.', 'error');
+                document.getElementById('startBtn').disabled = true;
+            }
+        }
+
+        function startInactivityTimer() {
+            clearInactivityTimer();
+            voiceInactivityTimer = setTimeout(() => {
+                updateStatus('⏰ 30 seconds of silence detected. Stopping recording...', 'info');
+                stopRecording();
+            }, 30000);
+        }
+
+        function clearInactivityTimer() {
+            if (voiceInactivityTimer) {
+                clearTimeout(voiceInactivityTimer);
+                voiceInactivityTimer = null;
+            }
+        }
+
+        function handleRecordingEnd() {
+            clearInactivityTimer();
+            resetRecordingButtons();
+            if (accumulatedTranscript.trim()) {
+                updateStatus('✅ Recording stopped. Review all accumulated speech and add names.', 'success');
+                updateTranscriptDisplay();
+            } else {
+                updateStatus('⚠️ No speech detected during recording session.', 'error');
+            }
+        }
+
+        function updateTranscriptDisplay() {
+            const transcript = document.getElementById('transcript');
+            const displayText = accumulatedTranscript.trim();
+            
+            if (displayText) {
+                transcript.textContent = displayText;
+                transcript.classList.add('has-content');
+                document.getElementById('addTranscriptBtn').disabled = false;
+            } else {
+                transcript.textContent = 'Transcript will appear here... Click "Start Recording" and say student names.';
+                transcript.classList.remove('has-content');
+                document.getElementById('addTranscriptBtn').disabled = true;
+            }
+        }
+
+        async function startRecording() {
+            if (!currentRun) {
+                updateStatus('⚠️ Please select or create a run first.', 'error');
+                return;
+            }
+            
+            const hasPermission = await testMicrophone();
+            if (!hasPermission) return;
+            
+            if (recognition) {
+                document.getElementById('transcript').textContent = 'Requesting microphone access...';
+                
+                try {
+                    recognition.start();
+                } catch (error) {
+                    if (error.name === 'InvalidStateError') {
+                        recognition.stop();
+                        setTimeout(() => {
+                            try {
+                                recognition.start();
+                            } catch (e) {
+                                updateStatus('❌ Could not start recording: ' + e.message, 'error');
+                                resetRecordingButtons();
+                            }
+                        }, 100);
+                    } else {
+                        updateStatus('❌ Could not start recording: ' + error.message, 'error');
+                        resetRecordingButtons();
+                    }
+                }
+            }
+        }
+
+        function stopRecording() {
+            if (recognition) {
+                try {
+                    clearInactivityTimer();
+                    recognition.stop();
+                    updateStatus('🔄 Stopping recording...', 'info');
+                } catch (error) {
+                    updateStatus('❌ Error stopping recording: ' + error.message, 'error');
+                    clearInactivityTimer();
+                    resetRecordingButtons();
+                }
+            }
+        }
+
+        function resetRecordingButtons() {
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('startBtn').classList.remove('recording');
+            document.getElementById('startBtn').textContent = 'Start Recording';
+        }
+
+        function clearTranscript() {
+            accumulatedTranscript = '';
+            currentTranscript = '';
+            updateTranscriptDisplay();
+            updateStatus('🧹 Transcript cleared. Ready for new recording.', 'info');
+        }
+
+        function addTranscriptNames() {
+            if (!accumulatedTranscript.trim()) {
+                updateStatus('⚠️ No transcript available.', 'error');
+                return;
+            }
+            
+            if (!currentRun) {
+                updateStatus('⚠️ Please select or create a run first.', 'error');
+                return;
+            }
+            
+            const names = accumulatedTranscript
+                .split(/[,.\s]+/)
+                .map(name => name.trim().replace(/[^\w\s-']/g, ''))
+                .filter(name => name.length > 1)
+                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright'].includes(name.toLowerCase()));
+            
+            if (names.length === 0) {
+                updateStatus('⚠️ No valid names found in transcript.', 'error');
+                return;
+            }
+            
+            names.forEach(name => addStudentToRun(name));
+            
+            accumulatedTranscript = '';
+            currentTranscript = '';
+            updateTranscriptDisplay();
+            
+            updateStatus(`✅ Added ${names.length} student(s) from voice transcript. Transcript cleared for next recording.`, 'success');
+        }
+
+        // Export and purge functions
         function exportToCSV() {
             if (!currentRun || !students[currentRun] || students[currentRun].length === 0) {
                 updateStatus('⚠️ No students to export for current run.', 'error');
@@ -1030,14 +891,12 @@
             const runInfo = runs[currentRun];
             const studentList = students[currentRun];
             
-            // Create CSV content
             let csvContent = 'Run Name,Run Start Time,Student Name,Boarding Time\n';
             
             studentList.forEach(student => {
                 csvContent += `"${runInfo.name}","${runInfo.startTime}","${student.name}","${student.timestamp}"\n`;
             });
             
-            // Create and download the file
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
@@ -1050,14 +909,12 @@
             
             updateStatus(`✅ CSV file downloaded: ${studentList.length} students exported.`, 'success');
             
-            // Auto-purge after export
             setTimeout(() => {
                 purgeCurrentRunData();
                 updateStatus(`🧹 Run data purged after successful export.`, 'info');
             }, 1000);
         }
 
-        // Enhanced email with automatic purge
         function sendEmail() {
             const emailAddress = document.getElementById('emailAddress').value.trim();
             
@@ -1074,7 +931,6 @@
             const runInfo = runs[currentRun];
             const studentList = students[currentRun];
             
-            // Create email content
             const subject = `Bus Run Report: ${runInfo.name} - ${new Date().toLocaleDateString()}`;
             
             let emailBody = `Bus Run Report\n\n`;
@@ -1091,22 +947,17 @@
             
             emailBody += `\n\nThis report was generated by the Bus Student Voice Tracker app.`;
             
-            // Create mailto link
             const mailtoLink = `mailto:${emailAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
-            
-            // Open default email client
             window.location.href = mailtoLink;
             
             updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
             
-            // Auto-purge after email
             setTimeout(() => {
                 purgeCurrentRunData();
                 updateStatus(`🧹 Run data purged after sending email.`, 'info');
             }, 2000);
         }
 
-        // Purge current run data
         function purgeCurrentRun() {
             if (!currentRun) {
                 updateStatus('⚠️ No current run selected.', 'error');
@@ -1129,22 +980,18 @@
                 localStorage.setItem('busRuns', JSON.stringify(runs));
                 localStorage.setItem('busStudents', JSON.stringify(students));
                 
-                // Clear current run selection
                 currentRun = null;
                 document.getElementById('runSelect').value = '';
                 
-                // Reload the runs dropdown
                 loadExistingRuns();
                 updateDisplay();
                 
-                // Clear any accumulated transcript
                 accumulatedTranscript = '';
                 currentTranscript = '';
                 updateTranscriptDisplay();
             }
         }
 
-        // Purge all data
         function purgeAllRuns() {
             if (!confirm('⚠️ WARNING: This will permanently delete ALL runs and student data. This cannot be undone!\n\nAre you absolutely sure?')) {
                 return;
@@ -1154,74 +1001,192 @@
                 return;
             }
             
-            // Clear all data
             runs = {};
             students = {};
             currentRun = null;
             accumulatedTranscript = '';
             currentTranscript = '';
             
-            // Clear localStorage
             localStorage.removeItem('busRuns');
             localStorage.removeItem('busStudents');
             
-            // Reset UI
             loadExistingRuns();
             updateDisplay();
             updateTranscriptDisplay();
             
             updateStatus('💥 All bus run data has been permanently purged.', 'success');
         }
-            
-            updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
-            
-            updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
-            
-            // Auto-purge after email
-            setTimeout(() => {
-                purgeCurrentRunData();
-                updateStatus(`🧹 Run data purged after sending email.`, 'info');
-            }, 2000);
+
+        // Browser compatibility functions
+        function checkAndRedirectToHTTPS() {
+            if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                const httpsUrl = location.href.replace('http:', 'https:');
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'status-message status-error';
+                warningDiv.innerHTML = `
+                    <strong>🔒 HTTPS Required for Microphone Access</strong><br>
+                    This page needs to be served over HTTPS to access the microphone.<br><br>
+                    <strong>Try this secure URL:</strong><br>
+                    <a href="${httpsUrl}" style="color: #007bff; font-weight: bold;">${httpsUrl}</a><br><br>
+                    <button onclick="window.location.href='${httpsUrl}'" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                        🔒 Switch to HTTPS
+                    </button>
+                `;
+                
+                const container = document.querySelector('.content');
+                container.insertBefore(warningDiv, container.firstChild);
+                
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('startBtn').textContent = 'HTTPS Required';
+                return false;
+            }
+            return true;
         }
 
-        // Enhanced email functionality with CSV attachment simulation
-        function sendEmailWithCSV() {
-            const emailAddress = document.getElementById('emailAddress').value.trim();
+        function detectBrowser() {
+            const isChrome = /Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor);
+            const isEdge = /Edg/.test(navigator.userAgent);
+            const isFirefox = /Firefox/.test(navigator.userAgent);
+            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
             
-            if (!emailAddress) {
-                updateStatus('⚠️ Please enter an email address.', 'error');
-                return;
-            }
-            
-            if (!currentRun || !students[currentRun] || students[currentRun].length === 0) {
-                updateStatus('⚠️ No students to send for current run.', 'error');
-                return;
-            }
-            
-            // First export the CSV
-            exportToCSV();
-            
-            // Then open email
-            setTimeout(() => {
-                const runInfo = runs[currentRun];
-                const studentList = students[currentRun];
-                
-                const subject = `Bus Run Report with CSV: ${runInfo.name} - ${new Date().toLocaleDateString()}`;
-                let emailBody = `Bus Run Report\n\n`;
-                emailBody += `Please find the detailed CSV file in your downloads folder.\n\n`;
-                emailBody += `Run Summary:\n`;
-                emailBody += `Run Name: ${runInfo.name}\n`;
-                emailBody += `Run Start Time: ${runInfo.startTime}\n`;
-                emailBody += `Total Students: ${studentList.length}\n`;
-                emailBody += `Report Generated: ${new Date().toLocaleString()}\n\n`;
-                emailBody += `Note: The detailed CSV file has been downloaded to your device. Please attach it to this email before sending.`;
-                
-                const mailtoLink = `mailto:${emailAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
-                window.location.href = mailtoLink;
-                
-                updateStatus('📧 CSV downloaded and email opened. Please attach the CSV file before sending.', 'info');
-            }, 500);
+            return {
+                isChrome: isChrome && !isEdge,
+                isEdge,
+                isFirefox,
+                isSafari,
+                name: isChrome && !isEdge ? 'Chrome' : isEdge ? 'Edge' : isFirefox ? 'Firefox' : isSafari ? 'Safari' : 'Unknown'
+            };
         }
+
+        function checkBrowserCompatibility() {
+            const browser = detectBrowser();
+            const hasSpeechRecognition = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+            
+            if (!browser.isChrome && !browser.isEdge) {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'status-message status-error browser-warning';
+                warningDiv.innerHTML = `
+                    <strong>⚠️ Browser Compatibility Warning</strong><br>
+                    You're using ${browser.name}. For best voice recognition performance, please use <strong>Google Chrome</strong>.<br><br>
+                    
+                    <strong>🔧 Quick Fix Options:</strong><br>
+                    <strong>Option 1 - Copy URL to Chrome:</strong><br>
+                    1. Copy this URL: <div class="url-copy">${window.location.href}</div>
+                    2. Open Google Chrome<br>
+                    3. Paste the URL and press Enter<br><br>
+                    
+                    <strong>Option 2 - Download Chrome:</strong><br>
+                    <a href="https://www.google.com/chrome/" target="_blank" style="color: #fff; text-decoration: underline;">Download Google Chrome (Free)</a><br><br>
+                    
+                    <strong>Option 3 - Use Manual Entry:</strong><br>
+                    You can still use this app by typing student names manually instead of voice recording.
+                `;
+                
+                const container = document.querySelector('.content');
+                container.insertBefore(warningDiv, container.firstChild);
+            } else if (!hasSpeechRecognition) {
+                const warningDiv = document.createElement('div');
+                warningDiv.className = 'status-message status-error';
+                warningDiv.innerHTML = `
+                    <strong>❌ Speech Recognition Not Available</strong><br>
+                    Your browser doesn't support speech recognition. Please try:<br>
+                    1. Using Google Chrome (recommended)<br>
+                    2. Enabling microphone permissions<br>
+                    3. Using HTTPS (required for microphone access)
+                `;
+                
+                const container = document.querySelector('.content');
+                container.insertBefore(warningDiv, container.firstChild);
+            } else if (browser.isChrome || browser.isEdge) {
+                setTimeout(() => {
+                    updateStatus(`✅ Great! ${browser.name} supports voice recognition perfectly.`, 'success');
+                }, 1000);
+            }
+        }
+
+        async function checkMicrophoneStatus() {
+            const statusDiv = document.createElement('div');
+            statusDiv.id = 'microphoneStatus';
+            statusDiv.className = 'status-message status-info';
+            
+            let statusHTML = '<strong>🔍 Microphone Diagnostics:</strong><br>';
+            
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                statusHTML += '❌ <strong>HTTPS Required:</strong> Microphone access requires HTTPS. ';
+                statusHTML += 'This page is served over HTTP which blocks microphone access.<br>';
+            } else {
+                statusHTML += '✅ HTTPS: Page is secure<br>';
+            }
+            
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                statusHTML += '❌ <strong>Speech Recognition:</strong> Not supported in this browser<br>';
+            } else {
+                statusHTML += '✅ Speech Recognition: Supported<br>';
+            }
+            
+            if (!navigator.mediaDevices) {
+                statusHTML += '❌ <strong>Media Devices:</strong> Not available (likely HTTP instead of HTTPS)<br>';
+            } else {
+                statusHTML += '✅ Media Devices: Available<br>';
+            }
+            
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const permissionStatus = await navigator.permissions.query({name: 'microphone'});
+                    statusHTML += `📋 <strong>Permission Status:</strong> ${permissionStatus.state}<br>`;
+                    
+                    if (permissionStatus.state === 'denied') {
+                        statusHTML += '⚠️ <strong>Fix:</strong> Go to Chrome Settings > Privacy > Microphone, find this site, and allow access<br>';
+                    }
+                } else {
+                    statusHTML += '⚠️ Permission status: Cannot check (try manual permission grant)<br>';
+                }
+            } catch (e) {
+                statusHTML += '⚠️ Permission check failed: ' + e.message + '<br>';
+            }
+            
+            statusHTML += '<br><strong>📱 Mobile Chrome Steps:</strong><br>';
+            statusHTML += '1. Tap the lock icon 🔒 in the address bar<br>';
+            statusHTML += '2. Tap "Microphone" and select "Allow"<br>';
+            statusHTML += '3. Refresh the page<br>';
+            
+            statusDiv.innerHTML = statusHTML;
+            
+            const container = document.querySelector('.content');
+            const existingStatus = document.getElementById('microphoneStatus');
+            if (existingStatus) {
+                existingStatus.remove();
+            }
+            container.insertBefore(statusDiv, container.firstChild);
+        }
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            const isSecure = checkAndRedirectToHTTPS();
+            
+            checkBrowserCompatibility();
+            if (isSecure) {
+                checkMicrophoneStatus();
+            }
+            initializeSpeechRecognition();
+            loadExistingRuns();
+            updateDisplay();
+            
+            document.getElementById('runSelect').addEventListener('change', function() {
+                currentRun = this.value;
+                updateDisplay();
+                if (currentRun) {
+                    updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
+                }
+            });
+            
+            if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                setTimeout(() => {
+                    updateStatus('📱 Mobile device detected. Click "Test Microphone" to check permissions.', 'info');
+                }, 2000);
+            }
+        });
     </script>
 </body>
 </html>
