@@ -105,11 +105,18 @@
             flex-shrink: 0;
             white-space: nowrap;
             min-width: 140px;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
 
-        .new-run-btn:hover {
+        .new-run-btn:hover, .new-run-btn:active {
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .new-run-btn:focus {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
         }
 
         .current-run {
@@ -399,7 +406,7 @@
                         <option value="">Select existing run...</option>
                     </select>
                     <input type="text" id="newRunName" placeholder="Enter new run name (e.g., Morning Route A)">
-                    <button class="new-run-btn" onclick="createNewRun()">Create New Run</button>
+                    <button class="new-run-btn" onclick="createNewRun()" ontouchstart="createNewRun()">Create New Run</button>
                 </div>
                 
                 <div id="currentRunDisplay" class="current-run" style="display: none;">
@@ -487,32 +494,56 @@
         }
 
         function createNewRun() {
-            const runName = document.getElementById('newRunName').value.trim();
-            if (!runName) {
-                updateStatus('⚠️ Please enter a run name.', 'error');
-                return;
-            }
+            console.log('createNewRun called'); // Debug log
+            
+            try {
+                const runNameInput = document.getElementById('newRunName');
+                const runName = runNameInput ? runNameInput.value.trim() : '';
+                
+                console.log('Run name:', runName); // Debug log
+                
+                if (!runName) {
+                    updateStatus('⚠️ Please enter a run name.', 'error');
+                    return;
+                }
 
-            const runId = Date.now().toString();
-            const startTime = new Date().toLocaleString();
-            
-            runs[runId] = {
-                name: runName,
-                startTime: startTime
-            };
-            
-            students[runId] = [];
-            
-            localStorage.setItem('busRuns', JSON.stringify(runs));
-            localStorage.setItem('busStudents', JSON.stringify(students));
-            
-            currentRun = runId;
-            document.getElementById('newRunName').value = '';
-            
-            loadExistingRuns();
-            document.getElementById('runSelect').value = runId;
-            updateDisplay();
-            updateStatus(`✅ Created new run: ${runName}`, 'success');
+                const runId = Date.now().toString();
+                const startTime = new Date().toLocaleString();
+                
+                console.log('Creating run with ID:', runId); // Debug log
+                
+                runs[runId] = {
+                    name: runName,
+                    startTime: startTime
+                };
+                
+                students[runId] = [];
+                
+                // Force localStorage update with error handling
+                try {
+                    localStorage.setItem('busRuns', JSON.stringify(runs));
+                    localStorage.setItem('busStudents', JSON.stringify(students));
+                    console.log('LocalStorage updated successfully'); // Debug log
+                } catch (storageError) {
+                    console.error('LocalStorage error:', storageError);
+                    updateStatus('⚠️ Storage error. Data may not persist.', 'error');
+                }
+                
+                currentRun = runId;
+                runNameInput.value = '';
+                
+                // Force UI updates
+                setTimeout(() => {
+                    loadExistingRuns();
+                    document.getElementById('runSelect').value = runId;
+                    updateDisplay();
+                    updateStatus(`✅ Created new run: ${runName}`, 'success');
+                }, 100);
+                
+            } catch (error) {
+                console.error('Error in createNewRun:', error);
+                updateStatus('❌ Error creating run: ' + error.message, 'error');
+            }
         }
 
         function loadExistingRuns() {
@@ -1163,6 +1194,8 @@
 
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM Content Loaded'); // Debug log
+            
             const isSecure = checkAndRedirectToHTTPS();
             
             checkBrowserCompatibility();
@@ -1173,19 +1206,51 @@
             loadExistingRuns();
             updateDisplay();
             
-            document.getElementById('runSelect').addEventListener('change', function() {
-                currentRun = this.value;
-                updateDisplay();
-                if (currentRun) {
-                    updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
-                }
-            });
-            
-            if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                setTimeout(() => {
-                    updateStatus('📱 Mobile device detected. Click "Test Microphone" to check permissions.', 'info');
-                }, 2000);
+            // Mobile-specific event listeners
+            const createButton = document.querySelector('.new-run-btn');
+            if (createButton) {
+                console.log('Adding mobile event listeners to create button'); // Debug log
+                
+                // Add both click and touchend events
+                createButton.addEventListener('click', function(e) {
+                    console.log('Button clicked'); // Debug log
+                    e.preventDefault();
+                    createNewRun();
+                });
+                
+                createButton.addEventListener('touchend', function(e) {
+                    console.log('Button touched'); // Debug log
+                    e.preventDefault();
+                    createNewRun();
+                });
             }
+            
+            // Run selection
+            const runSelect = document.getElementById('runSelect');
+            if (runSelect) {
+                runSelect.addEventListener('change', function() {
+                    console.log('Run selection changed:', this.value); // Debug log
+                    currentRun = this.value;
+                    updateDisplay();
+                    if (currentRun) {
+                        updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
+                    }
+                });
+            }
+            
+            // Mobile detection and tips
+            if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                console.log('Mobile device detected'); // Debug log
+                setTimeout(() => {
+                    updateStatus('📱 Mobile device detected. If buttons don\'t work, try tapping and holding briefly.', 'info');
+                }, 3000);
+            }
+            
+            // Add error handling for the entire page
+            window.addEventListener('error', function(e) {
+                console.error('Page error:', e.error);
+                updateStatus('❌ App error: ' + e.error.message, 'error');
+            });
         });
     </script>
 </body>
