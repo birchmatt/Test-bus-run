@@ -887,12 +887,15 @@
             updateStatus(`✅ Created new run: ${runName}`, 'success');
         }
 
-        document.getElementById('runSelect').addEventListener('change', function() {
-            currentRun = this.value;
-            updateDisplay();
-            if (currentRun) {
-                updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
-            }
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add event listener for run selection
+            document.getElementById('runSelect').addEventListener('change', function() {
+                currentRun = this.value;
+                updateDisplay();
+                if (currentRun) {
+                    updateStatus(`✅ Selected run: ${runs[currentRun].name}`, 'success');
+                }
+            });
         });
 
         function addManualName() {
