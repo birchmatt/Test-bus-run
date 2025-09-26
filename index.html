@@ -780,39 +780,32 @@
                     let interimTranscript = '';
                     let finalTranscript = '';
                     
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                    // Process all results to get the complete current transcript
+                    for (let i = 0; i < event.results.length; i++) {
                         const transcript = event.results[i][0].transcript;
                         if (event.results[i].isFinal) {
                             finalTranscript += transcript + ' ';
-                            lastSpeechTime = Date.now();
                         } else {
                             interimTranscript += transcript;
-                            if (interimTranscript.trim()) {
-                                lastSpeechTime = Date.now();
-                            }
                         }
                     }
                     
-                    // Only add final transcript to accumulated (prevents duplicates from interim results)
+                    // Update timing for final results
                     if (finalTranscript.trim()) {
-                        // Check if this final transcript is already in accumulated transcript
-                        const newText = finalTranscript.trim();
-                        if (!accumulatedTranscript.includes(newText)) {
-                            accumulatedTranscript += finalTranscript;
-                            updateTranscriptDisplay();
-                            console.log('Added to accumulated transcript:', newText);
-                        } else {
-                            console.log('Skipped duplicate transcript:', newText);
-                        }
+                        lastSpeechTime = Date.now();
+                    } else if (interimTranscript.trim()) {
+                        lastSpeechTime = Date.now();
                     }
                     
-                    currentTranscript = finalTranscript + interimTranscript;
+                    // Replace accumulated transcript with the complete final transcript
+                    accumulatedTranscript = finalTranscript;
+                    currentTranscript = interimTranscript;
                     
-                    // Show current speech including interim results for user feedback
-                    const displayText = accumulatedTranscript + (interimTranscript ? ' [' + interimTranscript + ']' : '');
+                    // Show current speech (final + interim)
+                    const displayText = (finalTranscript + interimTranscript).trim();
                     document.getElementById('transcript').textContent = displayText || 'Listening...';
                     
-                    if (displayText.trim()) {
+                    if (displayText) {
                         document.getElementById('transcript').classList.add('has-content');
                         document.getElementById('addTranscriptBtn').disabled = false;
                     }
@@ -974,48 +967,66 @@
                 return;
             }
             
-            // Enhanced name extraction with duplicate detection
-            const rawNames = accumulatedTranscript
-                .toLowerCase() // Convert to lowercase for better matching
-                .split(/[,.\s]+/)
-                .map(name => name.trim().replace(/[^\w\s-']/g, ''))
-                .filter(name => name.length > 1)
-                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no'].includes(name));
+            console.log('Raw transcript:', accumulatedTranscript);
             
-            // Remove duplicates and convert back to proper case
-            const uniqueNames = [...new Set(rawNames)].map(name => {
-                // Capitalize first letter of each word
-                return name.split(' ').map(word => 
-                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-                ).join(' ');
+            // Simple name extraction - just split by spaces and basic cleanup
+            let names = accumulatedTranscript
+                .trim()
+                .split(/\s+/) // Split by any whitespace
+                .map(name => name.replace(/[^\w\s-']/g, '').trim()) // Remove punctuation
+                .filter(name => name.length > 1) // Must be at least 2 characters
+                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no', 'hi', 'hello'].includes(name.toLowerCase()));
+            
+            console.log('Extracted words:', names);
+            
+            // Remove duplicates (case insensitive)
+            const uniqueNames = [];
+            const seenNames = new Set();
+            
+            names.forEach(name => {
+                const lowerName = name.toLowerCase();
+                if (!seenNames.has(lowerName)) {
+                    seenNames.add(lowerName);
+                    // Capitalize first letter only
+                    uniqueNames.push(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
+                }
             });
             
-            // Check against existing students to avoid duplicates
-            const existingNames = students[currentRun] ? 
-                students[currentRun].map(student => student.name.toLowerCase()) : [];
+            console.log('Unique names found:', uniqueNames);
             
-            const newNames = uniqueNames.filter(name => 
-                !existingNames.includes(name.toLowerCase())
-            );
-            
-            if (newNames.length === 0) {
-                if (uniqueNames.length > 0) {
-                    updateStatus('⚠️ All names from transcript are already in the list.', 'error');
-                } else {
-                    updateStatus('⚠️ No valid names found in transcript.', 'error');
-                }
+            if (uniqueNames.length === 0) {
+                updateStatus('⚠️ No valid names found in transcript.', 'error');
                 return;
             }
             
-            // Add only new, unique names
-            newNames.forEach(name => addStudentToRun(name));
+            // Add names and count successes
+            let addedCount = 0;
+            let skippedCount = 0;
             
-            // Clear the transcript after processing
+            uniqueNames.forEach(name => {
+                const wasAdded = addStudentToRun(name);
+                if (wasAdded) {
+                    addedCount++;
+                } else {
+                    skippedCount++;
+                }
+            });
+            
+            // Clear transcript after processing
             accumulatedTranscript = '';
             currentTranscript = '';
             updateTranscriptDisplay();
             
-            updateStatus(`✅ Added ${newNames.length} new student(s). Skipped ${uniqueNames.length - newNames.length} duplicates. Transcript cleared.`, 'success');
+            if (addedCount > 0) {
+                let message = `✅ Added ${addedCount} student(s)`;
+                if (skippedCount > 0) {
+                    message += `. Skipped ${skippedCount} duplicate(s)`;
+                }
+                message += '. Transcript cleared.';
+                updateStatus(message, 'success');
+            } else {
+                updateStatus('⚠️ All names were duplicates. No new students added.', 'error');
+            }
         }
 
         // Export and purge functions
