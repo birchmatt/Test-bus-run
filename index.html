@@ -979,19 +979,25 @@
             console.log('Processing transcript:', accumulatedTranscript);
             
             try {
-                // Split by common separators and clean up
+                // Very loose filtering - just basic cleanup
                 let possibleNames = accumulatedTranscript
                     .trim()
                     .split(/[\s,]+/) // Split by spaces or commas
-                    .map(word => word.replace(/[^\w'-]/g, '').trim()) // Keep only letters, apostrophes, hyphens
+                    .map(word => {
+                        // Keep letters, apostrophes, hyphens - remove other punctuation
+                        return word.replace(/[^\w'-]/g, '').trim();
+                    })
                     .filter(word => word.length >= 2) // At least 2 characters
-                    .filter(word => !/^\d+$/.test(word)) // No pure numbers
-                    .filter(word => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no', 'hi', 'hello', 'there', 'well', 'so', 'now'].includes(word.toLowerCase()));
+                    .filter(word => {
+                        // Only exclude very obvious non-names
+                        const lower = word.toLowerCase();
+                        return !['and', 'the', 'um', 'uh', 'okay'].includes(lower);
+                    });
                 
-                console.log('Possible names after filtering:', possibleNames);
+                console.log('Possible names after light filtering:', possibleNames);
                 
                 if (possibleNames.length === 0) {
-                    updateStatus('⚠️ No valid names found in transcript.', 'error');
+                    updateStatus('⚠️ No words found in transcript. Try speaking louder or closer to microphone.', 'error');
                     return;
                 }
                 
@@ -1000,12 +1006,12 @@
                 let skippedCount = 0;
                 const processedNames = new Set(); // Track what we've processed in this session
                 
-                possibleNames.forEach(name => {
-                    // Capitalize properly
-                    const properName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+                possibleNames.forEach(word => {
+                    // Simple capitalization
+                    const properName = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
                     const lowerName = properName.toLowerCase();
                     
-                    // Skip if we've already processed this name in this session
+                    // Skip if we've already processed this word in this session
                     if (processedNames.has(lowerName)) {
                         console.log(`Skipping duplicate in session: ${properName}`);
                         return;
@@ -1020,7 +1026,7 @@
                         console.log(`Added: ${properName}`);
                     } else {
                         skippedCount++;
-                        console.log(`Skipped duplicate: ${properName}`);
+                        console.log(`Skipped existing: ${properName}`);
                     }
                 });
                 
@@ -1031,15 +1037,15 @@
                 
                 // Provide feedback
                 if (addedCount > 0) {
-                    let message = `✅ Added ${addedCount} student(s)`;
+                    let message = `✅ Added ${addedCount} name(s)`;
                     if (skippedCount > 0) {
-                        message += ` (${skippedCount} were duplicates)`;
+                        message += ` (${skippedCount} already existed)`;
                     }
                     updateStatus(message, 'success');
                 } else if (skippedCount > 0) {
-                    updateStatus('⚠️ All names were already in the list.', 'error');
+                    updateStatus('⚠️ All words were already in the list.', 'info');
                 } else {
-                    updateStatus('⚠️ No valid names found.', 'error');
+                    updateStatus('⚠️ No words detected. Try speaking more clearly.', 'error');
                 }
                 
             } finally {
