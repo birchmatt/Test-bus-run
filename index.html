@@ -415,6 +415,7 @@
                     <input type="text" id="manualName" placeholder="Or type a student name manually">
                     <button class="add-btn" onclick="addManualName()">Add Name</button>
                     <button class="add-btn" onclick="addTranscriptNames()" id="addTranscriptBtn" disabled>Add All Names from Voice</button>
+                    <button class="add-btn" onclick="clearTranscript()" style="background: linear-gradient(135deg, #6c757d, #495057);">Clear Transcript</button>
                 </div>
             </div>
 
@@ -444,6 +445,12 @@
                         <button class="add-btn" onclick="sendEmail()" style="background: linear-gradient(135deg, #007bff, #6f42c1);">
                             📧 Send Email
                         </button>
+                        <button class="add-btn" onclick="purgeCurrentRun()" style="background: linear-gradient(135deg, #dc3545, #c82333);">
+                            🗑️ Purge Current Run
+                        </button>
+                        <button class="add-btn" onclick="purgeAllRuns()" style="background: linear-gradient(135deg, #6f42c1, #e83e8c);">
+                            💥 Purge All Data
+                        </button>
                     </div>
                 </div>
             </div>
@@ -456,6 +463,9 @@
         let currentRun = null;
         let runs = JSON.parse(localStorage.getItem('busRuns') || '{}');
         let students = JSON.parse(localStorage.getItem('busStudents') || '{}');
+        let voiceInactivityTimer = null;
+        let accumulatedTranscript = '';
+        let lastSpeechTime = null;
 
         // Browser detection and Chrome recommendation
         function detectBrowser() {
@@ -783,10 +793,8 @@
             }
             
             if (recognition) {
-                currentTranscript = '';
+                // Don't clear accumulated transcript - keep building on it
                 document.getElementById('transcript').textContent = 'Requesting microphone access...';
-                document.getElementById('transcript').classList.remove('has-content');
-                document.getElementById('addTranscriptBtn').disabled = true;
                 
                 try {
                     recognition.start();
@@ -813,10 +821,12 @@
         function stopRecording() {
             if (recognition) {
                 try {
+                    clearInactivityTimer();
                     recognition.stop();
                     updateStatus('🔄 Stopping recording...', 'info');
                 } catch (error) {
                     updateStatus('❌ Error stopping recording: ' + error.message, 'error');
+                    clearInactivityTimer();
                     resetRecordingButtons();
                 }
             }
@@ -827,6 +837,13 @@
             document.getElementById('stopBtn').disabled = true;
             document.getElementById('startBtn').classList.remove('recording');
             document.getElementById('startBtn').textContent = 'Start Recording';
+        }
+
+        function clearTranscript() {
+            accumulatedTranscript = '';
+            currentTranscript = '';
+            updateTranscriptDisplay();
+            updateStatus('🧹 Transcript cleared. Ready for new recording.', 'info');
         }
 
         function loadExistingRuns() {
@@ -895,7 +912,7 @@
         }
 
         function addTranscriptNames() {
-            if (!currentTranscript.trim()) {
+            if (!accumulatedTranscript.trim()) {
                 updateStatus('⚠️ No transcript available.', 'error');
                 return;
             }
@@ -905,12 +922,12 @@
                 return;
             }
             
-            // Simple name extraction - split by common delimiters and clean up
-            const names = currentTranscript
+            // Enhanced name extraction from accumulated transcript
+            const names = accumulatedTranscript
                 .split(/[,.\s]+/)
                 .map(name => name.trim().replace(/[^\w\s-']/g, ''))
                 .filter(name => name.length > 1)
-                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an'].includes(name.toLowerCase()));
+                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright'].includes(name.toLowerCase()));
             
             if (names.length === 0) {
                 updateStatus('⚠️ No valid names found in transcript.', 'error');
@@ -918,12 +935,13 @@
             }
             
             names.forEach(name => addStudentToRun(name));
-            document.getElementById('transcript').textContent = 'Transcript will appear here...';
-            document.getElementById('transcript').classList.remove('has-content');
-            document.getElementById('addTranscriptBtn').disabled = true;
-            currentTranscript = '';
             
-            updateStatus(`✅ Added ${names.length} student(s) from voice transcript.`, 'success');
+            // Clear the accumulated transcript after processing
+            accumulatedTranscript = '';
+            currentTranscript = '';
+            updateTranscriptDisplay();
+            
+            updateStatus(`✅ Added ${names.length} student(s) from voice transcript. Transcript cleared for next recording.`, 'success');
         }
 
         function addStudentToRun(name) {
@@ -999,7 +1017,7 @@
             statusDiv.className = `status-message status-${type}`;
         }
 
-        // CSV Export functionality
+        // Enhanced CSV Export with automatic purge
         function exportToCSV() {
             if (!currentRun || !students[currentRun] || students[currentRun].length === 0) {
                 updateStatus('⚠️ No students to export for current run.', 'error');
@@ -1028,9 +1046,15 @@
             document.body.removeChild(link);
             
             updateStatus(`✅ CSV file downloaded: ${studentList.length} students exported.`, 'success');
+            
+            // Auto-purge after export
+            setTimeout(() => {
+                purgeCurrentRunData();
+                updateStatus(`🧹 Run data purged after successful export.`, 'info');
+            }, 1000);
         }
 
-        // Email functionality using mailto
+        // Enhanced email with automatic purge
         function sendEmail() {
             const emailAddress = document.getElementById('emailAddress').value.trim();
             
@@ -1071,6 +1095,90 @@
             window.location.href = mailtoLink;
             
             updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
+            
+            // Auto-purge after email
+            setTimeout(() => {
+                purgeCurrentRunData();
+                updateStatus(`🧹 Run data purged after sending email.`, 'info');
+            }, 2000);
+        }
+
+        // Purge current run data
+        function purgeCurrentRun() {
+            if (!currentRun) {
+                updateStatus('⚠️ No current run selected.', 'error');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to permanently delete all data for "${runs[currentRun].name}"?`)) {
+                return;
+            }
+            
+            purgeCurrentRunData();
+            updateStatus(`🗑️ Current run "${runs[currentRun].name}" has been purged.`, 'success');
+        }
+
+        function purgeCurrentRunData() {
+            if (currentRun && runs[currentRun]) {
+                delete runs[currentRun];
+                delete students[currentRun];
+                
+                localStorage.setItem('busRuns', JSON.stringify(runs));
+                localStorage.setItem('busStudents', JSON.stringify(students));
+                
+                // Clear current run selection
+                currentRun = null;
+                document.getElementById('runSelect').value = '';
+                
+                // Reload the runs dropdown
+                loadExistingRuns();
+                updateDisplay();
+                
+                // Clear any accumulated transcript
+                accumulatedTranscript = '';
+                currentTranscript = '';
+                updateTranscriptDisplay();
+            }
+        }
+
+        // Purge all data
+        function purgeAllRuns() {
+            if (!confirm('⚠️ WARNING: This will permanently delete ALL runs and student data. This cannot be undone!\n\nAre you absolutely sure?')) {
+                return;
+            }
+            
+            if (!confirm('🚨 FINAL CONFIRMATION: Delete ALL bus run data permanently?')) {
+                return;
+            }
+            
+            // Clear all data
+            runs = {};
+            students = {};
+            currentRun = null;
+            accumulatedTranscript = '';
+            currentTranscript = '';
+            
+            // Clear localStorage
+            localStorage.removeItem('busRuns');
+            localStorage.removeItem('busStudents');
+            
+            // Reset UI
+            loadExistingRuns();
+            updateDisplay();
+            updateTranscriptDisplay();
+            
+            updateStatus('💥 All bus run data has been permanently purged.', 'success');
+        }
+            
+            updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
+            
+            updateStatus(`📧 Email opened with run data for ${studentList.length} students.`, 'success');
+            
+            // Auto-purge after email
+            setTimeout(() => {
+                purgeCurrentRunData();
+                updateStatus(`🧹 Run data purged after sending email.`, 'info');
+            }, 2000);
         }
 
         // Enhanced email functionality with CSV attachment simulation
