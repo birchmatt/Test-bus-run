@@ -781,31 +781,34 @@
                 
                 recognition.onresult = function(event) {
                     let interimTranscript = '';
-                    let finalTranscript = '';
+                    let newFinalTranscript = '';
                     
                     // Process all results to get the complete current transcript
                     for (let i = 0; i < event.results.length; i++) {
                         const transcript = event.results[i][0].transcript;
                         if (event.results[i].isFinal) {
-                            finalTranscript += transcript + ' ';
+                            newFinalTranscript += transcript + ' ';
                         } else {
                             interimTranscript += transcript;
                         }
                     }
                     
-                    // Update timing for final results
-                    if (finalTranscript.trim()) {
-                        lastSpeechTime = Date.now();
-                    } else if (interimTranscript.trim()) {
+                    // Update timing for any speech
+                    if (newFinalTranscript.trim() || interimTranscript.trim()) {
                         lastSpeechTime = Date.now();
                     }
                     
-                    // Replace accumulated transcript with the complete final transcript
-                    accumulatedTranscript = finalTranscript;
+                    // ACCUMULATE final transcript instead of replacing
+                    if (newFinalTranscript.trim()) {
+                        accumulatedTranscript += newFinalTranscript;
+                        console.log('Added to accumulated transcript:', newFinalTranscript.trim());
+                        console.log('Full accumulated transcript:', accumulatedTranscript);
+                    }
+                    
                     currentTranscript = interimTranscript;
                     
-                    // Show current speech (final + interim)
-                    const displayText = (finalTranscript + interimTranscript).trim();
+                    // Show accumulated + current interim speech
+                    const displayText = (accumulatedTranscript + interimTranscript).trim();
                     document.getElementById('transcript').textContent = displayText || 'Listening...';
                     
                     if (displayText) {
@@ -976,17 +979,14 @@
             }
             
             isProcessingNames = true;
-            console.log('Processing transcript:', accumulatedTranscript);
+            console.log('Processing full accumulated transcript:', accumulatedTranscript);
             
             try {
-                // Very loose filtering - just basic cleanup
-                let possibleNames = accumulatedTranscript
+                // Split the ENTIRE accumulated transcript into words
+                let allWords = accumulatedTranscript
                     .trim()
                     .split(/[\s,]+/) // Split by spaces or commas
-                    .map(word => {
-                        // Keep letters, apostrophes, hyphens - remove other punctuation
-                        return word.replace(/[^\w'-]/g, '').trim();
-                    })
+                    .map(word => word.replace(/[^\w'-]/g, '').trim()) // Clean punctuation
                     .filter(word => word.length >= 2) // At least 2 characters
                     .filter(word => {
                         // Only exclude very obvious non-names
@@ -994,43 +994,43 @@
                         return !['and', 'the', 'um', 'uh', 'okay'].includes(lower);
                     });
                 
-                console.log('Possible names after light filtering:', possibleNames);
+                console.log('All words from accumulated transcript:', allWords);
                 
-                if (possibleNames.length === 0) {
-                    updateStatus('⚠️ No words found in transcript. Try speaking louder or closer to microphone.', 'error');
+                if (allWords.length === 0) {
+                    updateStatus('⚠️ No words found. Try speaking louder.', 'error');
                     return;
                 }
                 
-                // Process each potential name
-                let addedCount = 0;
-                let skippedCount = 0;
-                const processedNames = new Set(); // Track what we've processed in this session
+                // Remove duplicates from THIS processing session only
+                let uniqueWordsThisSession = [];
+                let seenThisSession = new Set();
                 
-                possibleNames.forEach(word => {
-                    // Simple capitalization
-                    const properName = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-                    const lowerName = properName.toLowerCase();
-                    
-                    // Skip if we've already processed this word in this session
-                    if (processedNames.has(lowerName)) {
-                        console.log(`Skipping duplicate in session: ${properName}`);
-                        return;
-                    }
-                    
-                    processedNames.add(lowerName);
-                    
-                    // Try to add to student list
-                    const wasAdded = addStudentToRun(properName);
-                    if (wasAdded) {
-                        addedCount++;
-                        console.log(`Added: ${properName}`);
-                    } else {
-                        skippedCount++;
-                        console.log(`Skipped existing: ${properName}`);
+                allWords.forEach(word => {
+                    const lowerWord = word.toLowerCase();
+                    if (!seenThisSession.has(lowerWord)) {
+                        seenThisSession.add(lowerWord);
+                        uniqueWordsThisSession.push(word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
                     }
                 });
                 
-                // Clear transcript after processing
+                console.log('Unique words this session:', uniqueWordsThisSession);
+                
+                // Now check against existing student list and add
+                let addedCount = 0;
+                let skippedCount = 0;
+                
+                uniqueWordsThisSession.forEach(name => {
+                    const wasAdded = addStudentToRun(name);
+                    if (wasAdded) {
+                        addedCount++;
+                        console.log(`Successfully added: ${name}`);
+                    } else {
+                        skippedCount++;
+                        console.log(`Already exists: ${name}`);
+                    }
+                });
+                
+                // Clear transcript after successful processing
                 accumulatedTranscript = '';
                 currentTranscript = '';
                 updateTranscriptDisplay();
@@ -1043,11 +1043,14 @@
                     }
                     updateStatus(message, 'success');
                 } else if (skippedCount > 0) {
-                    updateStatus('⚠️ All words were already in the list.', 'info');
+                    updateStatus('ℹ️ All names were already in the list.', 'info');
                 } else {
-                    updateStatus('⚠️ No words detected. Try speaking more clearly.', 'error');
+                    updateStatus('⚠️ No valid names found.', 'error');
                 }
                 
+            } catch (error) {
+                console.error('Error processing names:', error);
+                updateStatus('❌ Error processing names: ' + error.message, 'error');
             } finally {
                 isProcessingNames = false;
             }
