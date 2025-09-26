@@ -406,7 +406,16 @@
                         <option value="">Select existing run...</option>
                     </select>
                     <input type="text" id="newRunName" placeholder="Enter new run name (e.g., Morning Route A)">
-                    <button class="new-run-btn" onclick="createNewRun()" ontouchstart="createNewRun()">Create New Run</button>
+                    <button class="new-run-btn" id="createRunBtn">Create New Run</button>
+                </div>
+                
+                <!-- Debug section for mobile testing -->
+                <div style="margin-top: 15px; padding: 15px; background: #e9ecef; border-radius: 10px;">
+                    <strong>Debug Info:</strong>
+                    <div id="debugInfo">Ready for testing...</div>
+                    <button onclick="window.testCreateRun()" style="background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 5px; margin-top: 10px;">
+                        🧪 Manual Test Create Run
+                    </button>
                 </div>
                 
                 <div id="currentRunDisplay" class="current-run" style="display: none;">
@@ -493,24 +502,71 @@
             statusDiv.className = `status-message status-${type}`;
         }
 
+        // Debug function for manual testing
+        window.testCreateRun = function() {
+            const debugDiv = document.getElementById('debugInfo');
+            debugDiv.innerHTML = 'Testing create run...<br>';
+            
+            try {
+                const runName = document.getElementById('newRunName').value.trim() || 'Test Run ' + Date.now();
+                debugDiv.innerHTML += `Run name: ${runName}<br>`;
+                
+                const runId = Date.now().toString();
+                debugDiv.innerHTML += `Run ID: ${runId}<br>`;
+                
+                runs[runId] = {
+                    name: runName,
+                    startTime: new Date().toLocaleString()
+                };
+                
+                students[runId] = [];
+                debugDiv.innerHTML += 'Data structures updated<br>';
+                
+                localStorage.setItem('busRuns', JSON.stringify(runs));
+                localStorage.setItem('busStudents', JSON.stringify(students));
+                debugDiv.innerHTML += 'LocalStorage updated<br>';
+                
+                currentRun = runId;
+                document.getElementById('newRunName').value = '';
+                
+                loadExistingRuns();
+                document.getElementById('runSelect').value = runId;
+                updateDisplay();
+                
+                debugDiv.innerHTML += '<strong style="color: green;">SUCCESS!</strong><br>';
+                updateStatus(`✅ Manual test created run: ${runName}`, 'success');
+                
+            } catch (error) {
+                debugDiv.innerHTML += `<strong style="color: red;">ERROR: ${error.message}</strong><br>`;
+                console.error('Manual test error:', error);
+            }
+        };
+
         function createNewRun() {
-            console.log('createNewRun called'); // Debug log
+            const debugDiv = document.getElementById('debugInfo');
+            if (debugDiv) {
+                debugDiv.innerHTML = 'createNewRun() called...<br>';
+            }
             
             try {
                 const runNameInput = document.getElementById('newRunName');
-                const runName = runNameInput ? runNameInput.value.trim() : '';
+                if (!runNameInput) {
+                    throw new Error('Input field not found');
+                }
                 
-                console.log('Run name:', runName); // Debug log
+                const runName = runNameInput.value.trim();
+                if (debugDiv) debugDiv.innerHTML += `Input value: "${runName}"<br>`;
                 
                 if (!runName) {
                     updateStatus('⚠️ Please enter a run name.', 'error');
+                    if (debugDiv) debugDiv.innerHTML += 'No run name entered<br>';
                     return;
                 }
 
                 const runId = Date.now().toString();
                 const startTime = new Date().toLocaleString();
                 
-                console.log('Creating run with ID:', runId); // Debug log
+                if (debugDiv) debugDiv.innerHTML += `Creating run ID: ${runId}<br>`;
                 
                 runs[runId] = {
                     name: runName,
@@ -519,30 +575,25 @@
                 
                 students[runId] = [];
                 
-                // Force localStorage update with error handling
-                try {
-                    localStorage.setItem('busRuns', JSON.stringify(runs));
-                    localStorage.setItem('busStudents', JSON.stringify(students));
-                    console.log('LocalStorage updated successfully'); // Debug log
-                } catch (storageError) {
-                    console.error('LocalStorage error:', storageError);
-                    updateStatus('⚠️ Storage error. Data may not persist.', 'error');
-                }
+                localStorage.setItem('busRuns', JSON.stringify(runs));
+                localStorage.setItem('busStudents', JSON.stringify(students));
+                
+                if (debugDiv) debugDiv.innerHTML += 'Data saved<br>';
                 
                 currentRun = runId;
                 runNameInput.value = '';
                 
-                // Force UI updates
-                setTimeout(() => {
-                    loadExistingRuns();
-                    document.getElementById('runSelect').value = runId;
-                    updateDisplay();
-                    updateStatus(`✅ Created new run: ${runName}`, 'success');
-                }, 100);
+                loadExistingRuns();
+                document.getElementById('runSelect').value = runId;
+                updateDisplay();
+                updateStatus(`✅ Created new run: ${runName}`, 'success');
+                
+                if (debugDiv) debugDiv.innerHTML += '<strong style="color: green;">Function completed successfully!</strong><br>';
                 
             } catch (error) {
                 console.error('Error in createNewRun:', error);
                 updateStatus('❌ Error creating run: ' + error.message, 'error');
+                if (debugDiv) debugDiv.innerHTML += `<strong style="color: red;">Error: ${error.message}</strong><br>`;
             }
         }
 
@@ -1194,7 +1245,7 @@
 
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM Content Loaded'); // Debug log
+            console.log('DOM Content Loaded');
             
             const isSecure = checkAndRedirectToHTTPS();
             
@@ -1206,22 +1257,55 @@
             loadExistingRuns();
             updateDisplay();
             
-            // Mobile-specific event listeners
-            const createButton = document.querySelector('.new-run-btn');
+            // Create Run Button Event Listeners
+            const createButton = document.getElementById('createRunBtn');
             if (createButton) {
-                console.log('Adding mobile event listeners to create button'); // Debug log
+                console.log('Setting up create button event listeners');
                 
-                // Add both click and touchend events
+                // Remove any existing onclick handlers
+                createButton.onclick = null;
+                createButton.ontouchstart = null;
+                
+                // Add multiple event types for mobile compatibility
                 createButton.addEventListener('click', function(e) {
-                    console.log('Button clicked'); // Debug log
                     e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Create button clicked');
                     createNewRun();
-                });
+                }, { passive: false });
+                
+                createButton.addEventListener('touchstart', function(e) {
+                    e.preventDefault();
+                    console.log('Create button touched');
+                }, { passive: false });
                 
                 createButton.addEventListener('touchend', function(e) {
-                    console.log('Button touched'); // Debug log
                     e.preventDefault();
+                    e.stopPropagation();
+                    console.log('Create button touch ended');
                     createNewRun();
+                }, { passive: false });
+                
+                // Also try mousedown for broader compatibility
+                createButton.addEventListener('mousedown', function(e) {
+                    console.log('Create button mouse down');
+                    setTimeout(() => createNewRun(), 50);
+                });
+                
+                console.log('All event listeners added to create button');
+            } else {
+                console.error('Create button not found!');
+            }
+            
+            // Enter key support for input field
+            const runNameInput = document.getElementById('newRunName');
+            if (runNameInput) {
+                runNameInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        console.log('Enter key pressed, creating run');
+                        createNewRun();
+                    }
                 });
             }
             
@@ -1229,7 +1313,7 @@
             const runSelect = document.getElementById('runSelect');
             if (runSelect) {
                 runSelect.addEventListener('change', function() {
-                    console.log('Run selection changed:', this.value); // Debug log
+                    console.log('Run selection changed:', this.value);
                     currentRun = this.value;
                     updateDisplay();
                     if (currentRun) {
@@ -1239,18 +1323,26 @@
             }
             
             // Mobile detection and tips
+            const debugDiv = document.getElementById('debugInfo');
             if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
-                console.log('Mobile device detected'); // Debug log
+                console.log('Mobile device detected');
+                if (debugDiv) {
+                    debugDiv.innerHTML = 'Mobile device detected. Try the manual test button if the main button doesn\'t work.';
+                }
                 setTimeout(() => {
-                    updateStatus('📱 Mobile device detected. If buttons don\'t work, try tapping and holding briefly.', 'info');
+                    updateStatus('📱 Mobile detected. If "Create New Run" doesn\'t work, try the manual test button below.', 'info');
                 }, 3000);
             }
             
-            // Add error handling for the entire page
+            // Global error handler
             window.addEventListener('error', function(e) {
                 console.error('Page error:', e.error);
-                updateStatus('❌ App error: ' + e.error.message, 'error');
+                if (debugDiv) {
+                    debugDiv.innerHTML += `<br><strong style="color: red;">Page Error: ${e.error.message}</strong>`;
+                }
             });
+            
+            console.log('Initialization complete');
         });
     </script>
 </body>
