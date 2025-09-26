@@ -621,8 +621,15 @@
                 return;
             }
             
-            addStudentToRun(name);
-            document.getElementById('manualName').value = '';
+            // Check for duplicate before adding
+            const wasAdded = addStudentToRun(name);
+            if (wasAdded) {
+                document.getElementById('manualName').value = '';
+                updateStatus(`✅ Added ${name}`, 'success');
+            } else {
+                updateStatus(`⚠️ "${name}" is already in the list.`, 'error');
+                document.getElementById('manualName').value = '';
+            }
         }
 
         function addStudentToRun(name) {
@@ -630,14 +637,28 @@
                 students[currentRun] = [];
             }
             
+            // Check for duplicates before adding
+            const normalizedName = name.toLowerCase().trim();
+            const isDuplicate = students[currentRun].some(student => 
+                student.name.toLowerCase().trim() === normalizedName
+            );
+            
+            if (isDuplicate) {
+                console.log(`Skipping duplicate: ${name}`);
+                return false; // Indicate duplicate was skipped
+            }
+            
             const studentEntry = {
-                name: name,
+                name: name.trim(),
                 timestamp: new Date().toLocaleString()
             };
             
             students[currentRun].push(studentEntry);
             localStorage.setItem('busStudents', JSON.stringify(students));
             updateStudentsList();
+            
+            console.log(`Added student: ${name}`);
+            return true; // Indicate student was added
         }
 
         function removeStudent(index) {
@@ -772,13 +793,23 @@
                         }
                     }
                     
+                    // Only add final transcript to accumulated (prevents duplicates from interim results)
                     if (finalTranscript.trim()) {
-                        accumulatedTranscript += finalTranscript;
-                        updateTranscriptDisplay();
+                        // Check if this final transcript is already in accumulated transcript
+                        const newText = finalTranscript.trim();
+                        if (!accumulatedTranscript.includes(newText)) {
+                            accumulatedTranscript += finalTranscript;
+                            updateTranscriptDisplay();
+                            console.log('Added to accumulated transcript:', newText);
+                        } else {
+                            console.log('Skipped duplicate transcript:', newText);
+                        }
                     }
                     
                     currentTranscript = finalTranscript + interimTranscript;
-                    const displayText = accumulatedTranscript + (interimTranscript ? ' ' + interimTranscript : '');
+                    
+                    // Show current speech including interim results for user feedback
+                    const displayText = accumulatedTranscript + (interimTranscript ? ' [' + interimTranscript + ']' : '');
                     document.getElementById('transcript').textContent = displayText || 'Listening...';
                     
                     if (displayText.trim()) {
@@ -943,24 +974,48 @@
                 return;
             }
             
-            const names = accumulatedTranscript
+            // Enhanced name extraction with duplicate detection
+            const rawNames = accumulatedTranscript
+                .toLowerCase() // Convert to lowercase for better matching
                 .split(/[,.\s]+/)
                 .map(name => name.trim().replace(/[^\w\s-']/g, ''))
                 .filter(name => name.length > 1)
-                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright'].includes(name.toLowerCase()));
+                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no'].includes(name));
             
-            if (names.length === 0) {
-                updateStatus('⚠️ No valid names found in transcript.', 'error');
+            // Remove duplicates and convert back to proper case
+            const uniqueNames = [...new Set(rawNames)].map(name => {
+                // Capitalize first letter of each word
+                return name.split(' ').map(word => 
+                    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                ).join(' ');
+            });
+            
+            // Check against existing students to avoid duplicates
+            const existingNames = students[currentRun] ? 
+                students[currentRun].map(student => student.name.toLowerCase()) : [];
+            
+            const newNames = uniqueNames.filter(name => 
+                !existingNames.includes(name.toLowerCase())
+            );
+            
+            if (newNames.length === 0) {
+                if (uniqueNames.length > 0) {
+                    updateStatus('⚠️ All names from transcript are already in the list.', 'error');
+                } else {
+                    updateStatus('⚠️ No valid names found in transcript.', 'error');
+                }
                 return;
             }
             
-            names.forEach(name => addStudentToRun(name));
+            // Add only new, unique names
+            newNames.forEach(name => addStudentToRun(name));
             
+            // Clear the transcript after processing
             accumulatedTranscript = '';
             currentTranscript = '';
             updateTranscriptDisplay();
             
-            updateStatus(`✅ Added ${names.length} student(s) from voice transcript. Transcript cleared for next recording.`, 'success');
+            updateStatus(`✅ Added ${newNames.length} new student(s). Skipped ${uniqueNames.length - newNames.length} duplicates. Transcript cleared.`, 'success');
         }
 
         // Export and purge functions
