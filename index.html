@@ -441,7 +441,7 @@
                 <div class="add-name-section">
                     <input type="text" id="manualName" placeholder="Or type a student name manually">
                     <button class="add-btn" onclick="addManualName()">Add Name</button>
-                    <button class="add-btn" onclick="addTranscriptNames()" id="addTranscriptBtn" disabled>Add All Names from Voice</button>
+                    <button class="add-btn" onclick="if(!isProcessingNames) addTranscriptNames()" id="addTranscriptBtn" disabled>Add All Names from Voice</button>
                     <button class="add-btn" onclick="clearTranscript()" style="background: linear-gradient(135deg, #6c757d, #495057);">Clear Transcript</button>
                 </div>
             </div>
@@ -494,6 +494,7 @@
         let voiceInactivityTimer = null;
         let accumulatedTranscript = '';
         let lastSpeechTime = null;
+        let isProcessingNames = false; // Prevent multiple simultaneous processing
 
         // Core functions
         function updateStatus(message, type) {
@@ -637,17 +638,20 @@
                 students[currentRun] = [];
             }
             
-            // Check for duplicates before adding
-            const normalizedName = name.toLowerCase().trim();
-            const isDuplicate = students[currentRun].some(student => 
-                student.name.toLowerCase().trim() === normalizedName
-            );
+            // Strict duplicate check - normalize whitespace and case
+            const normalizedNewName = name.toLowerCase().trim().replace(/\s+/g, ' ');
+            
+            const isDuplicate = students[currentRun].some(student => {
+                const normalizedExisting = student.name.toLowerCase().trim().replace(/\s+/g, ' ');
+                return normalizedExisting === normalizedNewName;
+            });
             
             if (isDuplicate) {
-                console.log(`Skipping duplicate: ${name}`);
-                return false; // Indicate duplicate was skipped
+                console.log(`Duplicate detected: "${name}" matches existing student`);
+                return false;
             }
             
+            // Add the student
             const studentEntry = {
                 name: name.trim(),
                 timestamp: new Date().toLocaleString()
@@ -657,8 +661,7 @@
             localStorage.setItem('busStudents', JSON.stringify(students));
             updateStudentsList();
             
-            console.log(`Added student: ${name}`);
-            return true; // Indicate student was added
+            return true;
         }
 
         function removeStudent(index) {
@@ -957,6 +960,11 @@
         }
 
         function addTranscriptNames() {
+            if (isProcessingNames) {
+                console.log('Already processing names, skipping...');
+                return;
+            }
+            
             if (!accumulatedTranscript.trim()) {
                 updateStatus('⚠️ No transcript available.', 'error');
                 return;
@@ -967,65 +975,75 @@
                 return;
             }
             
-            console.log('Raw transcript:', accumulatedTranscript);
+            isProcessingNames = true;
+            console.log('Processing transcript:', accumulatedTranscript);
             
-            // Simple name extraction - just split by spaces and basic cleanup
-            let names = accumulatedTranscript
-                .trim()
-                .split(/\s+/) // Split by any whitespace
-                .map(name => name.replace(/[^\w\s-']/g, '').trim()) // Remove punctuation
-                .filter(name => name.length > 1) // Must be at least 2 characters
-                .filter(name => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no', 'hi', 'hello'].includes(name.toLowerCase()));
-            
-            console.log('Extracted words:', names);
-            
-            // Remove duplicates (case insensitive)
-            const uniqueNames = [];
-            const seenNames = new Set();
-            
-            names.forEach(name => {
-                const lowerName = name.toLowerCase();
-                if (!seenNames.has(lowerName)) {
-                    seenNames.add(lowerName);
-                    // Capitalize first letter only
-                    uniqueNames.push(name.charAt(0).toUpperCase() + name.slice(1).toLowerCase());
+            try {
+                // Split by common separators and clean up
+                let possibleNames = accumulatedTranscript
+                    .trim()
+                    .split(/[\s,]+/) // Split by spaces or commas
+                    .map(word => word.replace(/[^\w'-]/g, '').trim()) // Keep only letters, apostrophes, hyphens
+                    .filter(word => word.length >= 2) // At least 2 characters
+                    .filter(word => !/^\d+$/.test(word)) // No pure numbers
+                    .filter(word => !['and', 'the', 'is', 'are', 'was', 'were', 'a', 'an', 'um', 'uh', 'okay', 'alright', 'yes', 'no', 'hi', 'hello', 'there', 'well', 'so', 'now'].includes(word.toLowerCase()));
+                
+                console.log('Possible names after filtering:', possibleNames);
+                
+                if (possibleNames.length === 0) {
+                    updateStatus('⚠️ No valid names found in transcript.', 'error');
+                    return;
                 }
-            });
-            
-            console.log('Unique names found:', uniqueNames);
-            
-            if (uniqueNames.length === 0) {
-                updateStatus('⚠️ No valid names found in transcript.', 'error');
-                return;
-            }
-            
-            // Add names and count successes
-            let addedCount = 0;
-            let skippedCount = 0;
-            
-            uniqueNames.forEach(name => {
-                const wasAdded = addStudentToRun(name);
-                if (wasAdded) {
-                    addedCount++;
+                
+                // Process each potential name
+                let addedCount = 0;
+                let skippedCount = 0;
+                const processedNames = new Set(); // Track what we've processed in this session
+                
+                possibleNames.forEach(name => {
+                    // Capitalize properly
+                    const properName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+                    const lowerName = properName.toLowerCase();
+                    
+                    // Skip if we've already processed this name in this session
+                    if (processedNames.has(lowerName)) {
+                        console.log(`Skipping duplicate in session: ${properName}`);
+                        return;
+                    }
+                    
+                    processedNames.add(lowerName);
+                    
+                    // Try to add to student list
+                    const wasAdded = addStudentToRun(properName);
+                    if (wasAdded) {
+                        addedCount++;
+                        console.log(`Added: ${properName}`);
+                    } else {
+                        skippedCount++;
+                        console.log(`Skipped duplicate: ${properName}`);
+                    }
+                });
+                
+                // Clear transcript after processing
+                accumulatedTranscript = '';
+                currentTranscript = '';
+                updateTranscriptDisplay();
+                
+                // Provide feedback
+                if (addedCount > 0) {
+                    let message = `✅ Added ${addedCount} student(s)`;
+                    if (skippedCount > 0) {
+                        message += ` (${skippedCount} were duplicates)`;
+                    }
+                    updateStatus(message, 'success');
+                } else if (skippedCount > 0) {
+                    updateStatus('⚠️ All names were already in the list.', 'error');
                 } else {
-                    skippedCount++;
+                    updateStatus('⚠️ No valid names found.', 'error');
                 }
-            });
-            
-            // Clear transcript after processing
-            accumulatedTranscript = '';
-            currentTranscript = '';
-            updateTranscriptDisplay();
-            
-            if (addedCount > 0) {
-                let message = `✅ Added ${addedCount} student(s)`;
-                if (skippedCount > 0) {
-                    message += `. Skipped ${skippedCount} duplicate(s)`;
-                }
-                message += '. Transcript cleared.';
-                updateStatus(message, 'success');
-            } else {
-                updateStatus('⚠️ All names were duplicates. No new students added.', 'error');
+                
+            } finally {
+                isProcessingNames = false;
             }
         }
 
