@@ -495,6 +495,8 @@
         let accumulatedTranscript = '';
         let lastSpeechTime = null;
         let isProcessingNames = false; // Prevent multiple simultaneous processing
+        let isRecording = false; // Track recording state
+        let shouldStopRecording = false; // Flag for manual stop
 
         // Core functions
         function updateStatus(message, type) {
@@ -935,16 +937,25 @@
         }
 
         function stopRecording() {
+            console.log('Stop recording button pressed');
+            clearInactivityTimer();
+            
             if (recognition) {
                 try {
-                    clearInactivityTimer();
                     recognition.stop();
-                    updateStatus('🔄 Stopping recording...', 'info');
+                    recognition.abort(); // Force immediate stop
                 } catch (error) {
-                    updateStatus('❌ Error stopping recording: ' + error.message, 'error');
-                    clearInactivityTimer();
-                    resetRecordingButtons();
+                    console.log('Error stopping recognition:', error);
                 }
+            }
+            
+            // Immediately reset buttons
+            resetRecordingButtons();
+            
+            if (accumulatedTranscript.trim()) {
+                updateStatus('✅ Recording stopped. Review transcript and add names.', 'success');
+            } else {
+                updateStatus('⚠️ Recording stopped. No speech detected.', 'info');
             }
         }
 
