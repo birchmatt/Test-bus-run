@@ -390,6 +390,7 @@
         <div class="header">
             <h1>🚌 Bus Student Tracker</h1>
             <p>Voice-powered student boarding log</p>
+            <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 10px;">Version 2.1</div>
         </div>
         
         <div class="content">
@@ -912,48 +913,42 @@
             const hasPermission = await testMicrophone();
             if (!hasPermission) return;
             
+            // Reset all flags
+            isRecording = false;
+            shouldStopRecording = false;
+            
             if (recognition) {
-                document.getElementById('transcript').textContent = 'Requesting microphone access...';
-                
                 try {
                     recognition.start();
                 } catch (error) {
-                    if (error.name === 'InvalidStateError') {
-                        recognition.stop();
-                        setTimeout(() => {
-                            try {
-                                recognition.start();
-                            } catch (e) {
-                                updateStatus('❌ Could not start recording: ' + e.message, 'error');
-                                resetRecordingButtons();
-                            }
-                        }, 100);
-                    } else {
-                        updateStatus('❌ Could not start recording: ' + error.message, 'error');
-                        resetRecordingButtons();
-                    }
+                    updateStatus('❌ Could not start recording: ' + error.message, 'error');
+                    resetRecordingButtons();
                 }
             }
         }
 
         function stopRecording() {
             console.log('Stop recording button pressed');
+            shouldStopRecording = true;
+            isRecording = false;
+            
             clearInactivityTimer();
             
+            // Force stop immediately
             if (recognition) {
                 try {
                     recognition.stop();
-                    recognition.abort(); // Force immediate stop
+                    recognition.abort();
                 } catch (error) {
                     console.log('Error stopping recognition:', error);
                 }
             }
             
-            // Immediately reset buttons
+            // Immediate UI update
             resetRecordingButtons();
             
             if (accumulatedTranscript.trim()) {
-                updateStatus('✅ Recording stopped. Review transcript and add names.', 'success');
+                updateStatus('✅ Recording stopped manually. Review transcript and add names.', 'success');
             } else {
                 updateStatus('⚠️ Recording stopped. No speech detected.', 'info');
             }
@@ -990,74 +985,103 @@
             }
             
             isProcessingNames = true;
-            console.log('=== STARTING NAME PROCESSING ===');
-            console.log('Raw accumulated transcript:', `"${accumulatedTranscript}"`);
+            console.log('=== PROCESSING NAMES ===');
+            console.log('Raw transcript:', `"${accumulatedTranscript}"`);
             
             try {
-                // Step 1: Split into words
-                let allWords = accumulatedTranscript
+                // Split by natural pauses/separators but keep full names together
+                let nameCandidates = accumulatedTranscript
                     .trim()
-                    .split(/[\s,]+/)
-                    .map(word => word.replace(/[^\w'-]/g, '').trim())
-                    .filter(word => word.length >= 2);
+                    .split(/[,]+/) // Split only by commas (not spaces)
+                    .map(phrase => phrase.trim())
+                    .filter(phrase => phrase.length > 0);
                 
-                console.log('Step 1 - All words after split/clean:', allWords);
+                // If no commas, try to split by longer pauses (double spaces or "and")
+                if (nameCandidates.length === 1) {
+                    nameCandidates = accumulatedTranscript
+                        .trim()
+                        .split(/\s+and\s+|\s{2,}/) // Split by "and" or multiple spaces
+                        .map(phrase => phrase.trim())
+                        .filter(phrase => phrase.length > 0);
+                }
                 
-                // Step 2: Filter out obvious non-names
-                let filteredWords = allWords.filter(word => {
-                    const lower = word.toLowerCase();
-                    return !['and', 'the', 'um', 'uh', 'okay'].includes(lower);
-                });
+                // If still one long phrase, try to intelligently split it
+                if (nameCandidates.length === 1) {
+                    const words = accumulatedTranscript.trim().split(/\s+/);
+                    console.log('Single phrase with words:', words);
+                    
+                    // Look for potential first/last name pairs
+                    const names = [];
+                    for (let i = 0; i < words.length; i += 2) {
+                        if (words[i]) {
+                            let fullName = words[i];
+                            if (words[i + 1]) {
+                                fullName += ' ' + words[i + 1];
+                            }
+                            names.push(fullName);
+                        }
+                    }
+                    nameCandidates = names;
+                }
                 
-                console.log('Step 2 - After filtering non-names:', filteredWords);
+                console.log('Name candidates after intelligent splitting:', nameCandidates);
                 
-                if (filteredWords.length === 0) {
-                    updateStatus('⚠️ No valid words found.', 'error');
+                // Clean up each name candidate
+                let cleanNames = nameCandidates
+                    .map(name => {
+                        // Remove punctuation but keep spaces, apostrophes, hyphens
+                        return name.replace(/[^\w\s'-]/g, '').trim();
+                    })
+                    .filter(name => {
+                        // Must be at least 2 characters and not obvious non-names
+                        const words = name.split(/\s+/);
+                        return name.length >= 2 && 
+                               !['and', 'the', 'um', 'uh', 'okay'].includes(name.toLowerCase()) &&
+                               words.length <= 4; // Reasonable name length
+                    })
+                    .map(name => {
+                        // Proper capitalization for each word in the name
+                        return name.split(/\s+/).map(word => 
+                            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                        ).join(' ');
+                    });
+                
+                console.log('Clean names:', cleanNames);
+                
+                if (cleanNames.length === 0) {
+                    updateStatus('⚠️ No valid names found.', 'error');
                     return;
                 }
                 
-                // Step 3: Remove duplicates within this session's transcript
-                let uniqueWords = [];
-                let seenInTranscript = new Set();
-                
-                filteredWords.forEach((word, index) => {
-                    const lowerWord = word.toLowerCase();
-                    console.log(`Processing word ${index + 1}: "${word}" (lowercase: "${lowerWord}")`);
-                    
-                    if (seenInTranscript.has(lowerWord)) {
-                        console.log(`  -> DUPLICATE in transcript, skipping`);
-                    } else {
-                        seenInTranscript.add(lowerWord);
-                        const properName = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-                        uniqueWords.push(properName);
-                        console.log(`  -> NEW in transcript, keeping as: "${properName}"`);
-                    }
-                });
-                
-                console.log('Step 3 - Unique words from transcript:', uniqueWords);
-                
-                // Step 4: Check against existing students and add
+                // Remove duplicates and add to student list
                 let addedCount = 0;
                 let skippedCount = 0;
+                const processedInSession = new Set();
                 
-                const existingStudents = students[currentRun] || [];
-                console.log('Existing students:', existingStudents.map(s => s.name));
-                
-                uniqueWords.forEach((name, index) => {
-                    console.log(`\nTrying to add student ${index + 1}: "${name}"`);
-                    const wasAdded = addStudentToRun(name);
+                cleanNames.forEach((fullName, index) => {
+                    const lowerName = fullName.toLowerCase();
+                    console.log(`Processing name ${index + 1}: "${fullName}"`);
+                    
+                    // Skip if already processed in this session
+                    if (processedInSession.has(lowerName)) {
+                        console.log(`  -> DUPLICATE in session, skipping`);
+                        return;
+                    }
+                    
+                    processedInSession.add(lowerName);
+                    
+                    // Try to add to student list
+                    const wasAdded = addStudentToRun(fullName);
                     if (wasAdded) {
                         addedCount++;
-                        console.log(`  -> ADDED successfully`);
+                        console.log(`  -> ADDED: "${fullName}"`);
                     } else {
                         skippedCount++;
-                        console.log(`  -> SKIPPED (already exists)`);
+                        console.log(`  -> ALREADY EXISTS: "${fullName}"`);
                     }
                 });
                 
-                console.log(`\n=== FINAL RESULTS ===`);
-                console.log(`Added: ${addedCount}, Skipped: ${skippedCount}`);
-                console.log('Current student list:', (students[currentRun] || []).map(s => s.name));
+                console.log(`Final results: Added ${addedCount}, Skipped ${skippedCount}`);
                 
                 // Clear transcript
                 accumulatedTranscript = '';
@@ -1066,9 +1090,9 @@
                 
                 // Provide feedback
                 if (addedCount > 0) {
-                    let message = `✅ Added ${addedCount} name(s)`;
+                    let message = `✅ Added ${addedCount} student(s)`;
                     if (skippedCount > 0) {
-                        message += ` (${skippedCount} were duplicates)`;
+                        message += ` (${skippedCount} already existed)`;
                     }
                     updateStatus(message, 'success');
                 } else if (skippedCount > 0) {
